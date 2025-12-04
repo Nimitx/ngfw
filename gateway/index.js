@@ -260,6 +260,68 @@ app.get("/admin/logs", (req, res) => {
   res.json(auditLogs);
 });
 
+// -------------- ADMIN: EXPORT LOGS (JSON / CSV) -----------
+
+function logsToCSV(logs) {
+  const headers = [
+    "time",
+    "method",
+    "path",
+    "userId",
+    "role",
+    "statusCode",
+    "decision_label",
+    "decision_ml_label",
+    "decision_risk",
+  ];
+
+  function esc(v) {
+    if (v === undefined || v === null) return '""';
+    const s = String(v).replace(/"/g, '""');
+    return `"${s}"`;
+  }
+
+  const rows = logs.map((e) => [
+    esc(e.time),
+    esc(e.context?.method),
+    esc(e.context?.path),
+    esc(e.context?.userId),
+    esc(e.context?.role),
+    esc(e.statusCode),
+    esc(e.decision?.label),
+    esc(e.decision?.ml_label),
+    esc(e.decision?.risk),
+  ]);
+
+  const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  return csv;
+}
+
+app.get("/admin/logs/export", (req, res) => {
+  try {
+    const format = (req.query.format || "json").toLowerCase();
+
+    if (format === "csv") {
+      const csv = logsToCSV(auditLogs);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="logs.csv"');
+      return res.send(csv);
+    }
+
+    // default: JSON
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="logs.json"');
+    return res.send(JSON.stringify(auditLogs, null, 2));
+  } catch (err) {
+    console.error("Error exporting logs:", err);
+    return res.status(500).json({
+      error: "Failed to export logs",
+      details: err.message,
+    });
+  }
+});
+
+
 // -------------- ADMIN: VIEW / VERIFY CHAIN -----
 
 app.get("/admin/chain", (req, res) => {

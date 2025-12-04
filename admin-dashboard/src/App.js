@@ -74,6 +74,7 @@ function App() {
           "x-user-id": userId,
           "x-user-role": role,
         },
+        // accept all HTTP codes (200, 403, 500...) as non-errors
         validateStatus: () => true,
       });
 
@@ -106,6 +107,34 @@ function App() {
       role: "guest",
     });
 
+  // ---------- EXPORT LOGS (JSON / CSV) ----------
+
+  const handleExport = async (format) => {
+    try {
+      const res = await axios.get(
+        `${GATEWAY_URL}/admin/logs/export?format=${format}`,
+        {
+          responseType: "blob", // get file as Blob
+        }
+      );
+
+      const blob = res.data;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = format === "csv" ? "logs.csv" : "logs.json";
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error exporting logs", err);
+      alert("Failed to export logs. Check gateway console for details.");
+    }
+  };
+
   // ---------- FILTERED LOGS + STATS ----------
 
   const filteredLogs = logs.filter((entry) => {
@@ -115,6 +144,7 @@ function App() {
     return true;
   });
 
+  // NEWEST FIRST
   const displayLogs = [...filteredLogs].sort(
     (a, b) => new Date(b.time) - new Date(a.time)
   );
@@ -353,59 +383,89 @@ function App() {
               justifyContent: "space-between",
               alignItems: "center",
               mb: 2,
+              gap: 2,
             }}
           >
             <Typography variant="h6" color="white">
               Firewall Traffic Logs
             </Typography>
 
-            <ToggleButtonGroup
-              value={filter}
-              exclusive
-              onChange={(_, v) => v && setFilter(v)}
-              size="small"
-              color="primary"
-            >
-              <ToggleButton
-                value="all"
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              {/* Export buttons */}
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => handleExport("json")}
                 sx={{
-                  color: "white",
                   borderColor: "#4b5563",
-                  "&.Mui-selected": {
-                    backgroundColor: "#2563eb",
-                    color: "#fff",
-                  },
+                  color: "white",
+                  "&:hover": { borderColor: "#9ca3af" },
                 }}
               >
-                ALL
-              </ToggleButton>
-              <ToggleButton
-                value="allowed"
+                Export JSON
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => handleExport("csv")}
                 sx={{
-                  color: "white",
                   borderColor: "#4b5563",
-                  "&.Mui-selected": {
-                    backgroundColor: "#16a34a",
-                    color: "#fff",
-                  },
+                  color: "white",
+                  "&:hover": { borderColor: "#9ca3af" },
                 }}
               >
-                ALLOWED
-              </ToggleButton>
-              <ToggleButton
-                value="blocked"
-                sx={{
-                  color: "white",
-                  borderColor: "#4b5563",
-                  "&.Mui-selected": {
-                    backgroundColor: "#b91c1c",
-                    color: "#fff",
-                  },
-                }}
+                Export CSV
+              </Button>
+
+              {/* Filter buttons */}
+              <ToggleButtonGroup
+                value={filter}
+                exclusive
+                onChange={(_, v) => v && setFilter(v)}
+                size="small"
+                color="primary"
               >
-                BLOCKED
-              </ToggleButton>
-            </ToggleButtonGroup>
+                <ToggleButton
+                  value="all"
+                  sx={{
+                    color: "white",
+                    borderColor: "#4b5563",
+                    "&.Mui-selected": {
+                      backgroundColor: "#2563eb",
+                      color: "#fff",
+                    },
+                  }}
+                >
+                  ALL
+                </ToggleButton>
+                <ToggleButton
+                  value="allowed"
+                  sx={{
+                    color: "white",
+                    borderColor: "#4b5563",
+                    "&.Mui-selected": {
+                      backgroundColor: "#16a34a",
+                      color: "#fff",
+                    },
+                  }}
+                >
+                  ALLOWED
+                </ToggleButton>
+                <ToggleButton
+                  value="blocked"
+                  sx={{
+                    color: "white",
+                    borderColor: "#4b5563",
+                    "&.Mui-selected": {
+                      backgroundColor: "#b91c1c",
+                      color: "#fff",
+                    },
+                  }}
+                >
+                  BLOCKED
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
           </Box>
 
           <TableContainer sx={{ maxHeight: 420 }}>
@@ -453,6 +513,7 @@ function App() {
                       {entry.context?.role}
                     </TableCell>
 
+                    {/* Final combined risk label */}
                     <TableCell sx={{ color: "white" }}>
                       <Chip
                         label={entry.decision?.label || "normal"}
@@ -468,6 +529,7 @@ function App() {
                       />
                     </TableCell>
 
+                    {/* ML label from model */}
                     <TableCell sx={{ color: "white" }}>
                       <Chip
                         label={entry.decision?.ml_label || "normal"}
@@ -483,6 +545,7 @@ function App() {
                       />
                     </TableCell>
 
+                    {/* Allowed / Blocked */}
                     <TableCell sx={{ color: "white" }}>
                       <Chip
                         label={
@@ -499,6 +562,7 @@ function App() {
                       />
                     </TableCell>
 
+                    {/* Status code */}
                     <TableCell sx={{ color: "white" }}>
                       {entry.statusCode}
                     </TableCell>
