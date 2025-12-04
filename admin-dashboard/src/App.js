@@ -18,6 +18,18 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  BarChart,
+  Bar,
+  ResponsiveContainer,
+} from "recharts";
 
 const GATEWAY_URL = "http://localhost:4000";
 
@@ -144,7 +156,7 @@ function App() {
     return true;
   });
 
-  // NEWEST FIRST
+  // NEWEST FIRST for table + live feed
   const displayLogs = [...filteredLogs].sort(
     (a, b) => new Date(b.time) - new Date(a.time)
   );
@@ -205,6 +217,45 @@ function App() {
     return p;
   };
 
+  // ---------- ANALYTICS DATA (for charts) ----------
+
+  // Sort logs by time ASC for timeline
+  const logsSortedByTime = [...logs].sort(
+    (a, b) => new Date(a.time) - new Date(b.time)
+  );
+
+  const timeSeriesData = logsSortedByTime.map((e, idx) => {
+    const risk = e.decision?.risk ?? 0;
+    const isAllowed =
+      e.statusCode && e.statusCode < 400 ? 1 : 0;
+    const isBlocked =
+      e.statusCode && e.statusCode >= 400 ? 1 : 0;
+
+    return {
+      index: idx + 1,
+      timeLabel: formatTime(e.time),
+      risk,
+      allowed: isAllowed,
+      blocked: isBlocked,
+    };
+  });
+
+  // Aggregate per-path stats
+  const pathMap = {};
+  logs.forEach((e) => {
+    const p = e.context?.path || "/";
+    if (!pathMap[p]) {
+      pathMap[p] = { path: p, total: 0, allowed: 0, blocked: 0 };
+    }
+    pathMap[p].total += 1;
+    if (e.statusCode && e.statusCode < 400) {
+      pathMap[p].allowed += 1;
+    } else if (e.statusCode && e.statusCode >= 400) {
+      pathMap[p].blocked += 1;
+    }
+  });
+  const pathStats = Object.values(pathMap);
+
   // ---------- UI ----------
 
   return (
@@ -244,6 +295,87 @@ function App() {
             <Typography variant="h4">
               {chainOK ? "Verified" : "TAMPERED!"}
             </Typography>
+          </Paper>
+        </Box>
+
+        {/* ANALYTICS: Risk over time + Requests per path */}
+        <Box sx={{ display: "flex", gap: 2, mb: 3, flexWrap: "wrap" }}>
+          {/* Risk over time */}
+          <Paper
+            sx={{
+              flex: 1,
+              p: 2,
+              minWidth: 300,
+              background: "#020617",
+              color: "white",
+            }}
+          >
+            <Typography variant="h6" gutterBottom>
+              Risk Over Time
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1, color: "#9ca3af" }}>
+              Shows how the combined risk score changes across recent requests.
+            </Typography>
+            {timeSeriesData.length === 0 ? (
+              <Typography variant="body2" sx={{ color: "#6b7280" }}>
+                No data yet. Generate some traffic to see the risk trend.
+              </Typography>
+            ) : (
+              <Box sx={{ width: "100%", height: 260 }}>
+                <ResponsiveContainer>
+                  <LineChart data={timeSeriesData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="timeLabel" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="risk"
+                      name="Final Risk"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            )}
+          </Paper>
+
+          {/* Requests per path */}
+          <Paper
+            sx={{
+              flex: 1,
+              p: 2,
+              minWidth: 300,
+              background: "#020617",
+              color: "white",
+            }}
+          >
+            <Typography variant="h6" gutterBottom>
+              Requests per Path
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1, color: "#9ca3af" }}>
+              Compare how many requests were allowed vs blocked for each path.
+            </Typography>
+            {pathStats.length === 0 ? (
+              <Typography variant="body2" sx={{ color: "#6b7280" }}>
+                No data yet. Generate some traffic to see per-path stats.
+              </Typography>
+            ) : (
+              <Box sx={{ width: "100%", height: 260 }}>
+                <ResponsiveContainer>
+                  <BarChart data={pathStats}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="path" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="allowed" name="Allowed" />
+                    <Bar dataKey="blocked" name="Blocked" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            )}
           </Paper>
         </Box>
 

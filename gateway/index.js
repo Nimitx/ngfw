@@ -260,19 +260,68 @@ app.get("/admin/logs", (req, res) => {
   res.json(auditLogs);
 });
 
-// -------------- ADMIN: EXPORT LOGS (JSON / CSV) -----------
+// -------------- ADMIN: EXPORT LOGS (JSON / CSV, SIEM-STYLE) -----------
+
+/**
+ * Normalize an internal audit log entry into a SIEM-style event object.
+ */
+function normalizeLogForSIEM(entry) {
+  const ctx = entry.context || {};
+  const dec = entry.decision || {};
+
+  const isAllowed =
+    entry.statusCode !== undefined && entry.statusCode !== null
+      ? entry.statusCode < 400
+      : dec.allow;
+
+  return {
+    // Core SIEM fields
+    timestamp: entry.time || ctx.timestamp,
+    event_type: "firewall_decision",
+    source_ip: ctx.ip || "unknown",
+    http_method: ctx.method || "GET",
+    url_path: ctx.path || entry.targetPath || "/",
+    user_id: ctx.userId || "anonymous",
+    user_role: ctx.role || "guest",
+
+    // Decision outcome
+    action: isAllowed ? "allowed" : "blocked",
+    status_code: entry.statusCode ?? null,
+
+    // Risk / AI fields
+    risk_score: dec.risk ?? null,
+    rule_risk: dec.rule_risk ?? null,
+    ml_risk: dec.ml_risk ?? null,
+    risk_label: dec.label || "normal",
+    ml_label: dec.ml_label || "normal",
+
+    // Meta
+    gateway_service: "ai-ngfw-gateway",
+    protected_service: "dummy-backend",
+    reasons: dec.reasons || [],
+  };
+}
 
 function logsToCSV(logs) {
+  const normalized = logs.map(normalizeLogForSIEM);
+
   const headers = [
-    "time",
-    "method",
-    "path",
-    "userId",
-    "role",
-    "statusCode",
-    "decision_label",
-    "decision_ml_label",
-    "decision_risk",
+    "timestamp",
+    "event_type",
+    "source_ip",
+    "http_method",
+    "url_path",
+    "user_id",
+    "user_role",
+    "action",
+    "status_code",
+    "risk_score",
+    "rule_risk",
+    "ml_risk",
+    "risk_label",
+    "ml_label",
+    "gateway_service",
+    "protected_service",
   ];
 
   function esc(v) {
@@ -281,16 +330,23 @@ function logsToCSV(logs) {
     return `"${s}"`;
   }
 
-  const rows = logs.map((e) => [
-    esc(e.time),
-    esc(e.context?.method),
-    esc(e.context?.path),
-    esc(e.context?.userId),
-    esc(e.context?.role),
-    esc(e.statusCode),
-    esc(e.decision?.label),
-    esc(e.decision?.ml_label),
-    esc(e.decision?.risk),
+  const rows = normalized.map((e) => [
+    esc(e.timestamp),
+    esc(e.event_type),
+    esc(e.source_ip),
+    esc(e.http_method),
+    esc(e.url_path),
+    esc(e.user_id),
+    esc(e.user_role),
+    esc(e.action),
+    esc(e.status_code),
+    esc(e.risk_score),
+    esc(e.rule_risk),
+    esc(e.ml_risk),
+    esc(e.risk_label),
+    esc(e.ml_label),
+    esc(e.gateway_service),
+    esc(e.protected_service),
   ]);
 
   const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -301,6 +357,8 @@ app.get("/admin/logs/export", (req, res) => {
   try {
     const format = (req.query.format || "json").toLowerCase();
 
+    const normalized = auditLogs.map(normalizeLogForSIEM);
+
     if (format === "csv") {
       const csv = logsToCSV(auditLogs);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -308,10 +366,10 @@ app.get("/admin/logs/export", (req, res) => {
       return res.send(csv);
     }
 
-    // default: JSON
+    // default: JSON (SIEM-style events)
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="logs.json"');
-    return res.send(JSON.stringify(auditLogs, null, 2));
+    return res.send(JSON.stringify(normalized, null, 2));
   } catch (err) {
     console.error("Error exporting logs:", err);
     return res.status(500).json({
@@ -320,7 +378,6 @@ app.get("/admin/logs/export", (req, res) => {
     });
   }
 });
-
 
 // -------------- ADMIN: VIEW / VERIFY CHAIN -----
 
